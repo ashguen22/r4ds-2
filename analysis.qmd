@@ -1,4 +1,97 @@
 ---
 title: "Analyzing US Births"
 author: "Ashlan Guengerich"
+execute:
+  echo: false
 ---
+
+```{r}
+#| message: false
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+#| cache: true
+births_tibble <- read_excel("data/us_births_1994_2014.xlsx") |>
+  mutate(
+    day_of_week = factor(
+      day_of_week,
+      levels = c("Sun", "Mon", "Tues", "Wed", "Thurs", "Fri", "Sat"),
+      ordered = TRUE
+    )
+  )
+```
+
+```{r}
+births_tibble |>
+  group_by(month, date_of_month) |>
+  summarize(mean_births = mean(births), .groups = "drop") |>
+  ggplot(aes(
+    x = date_of_month,
+    y = fct_rev(factor(month, labels = month.abb)),
+    fill = mean_births
+  )) +
+  geom_tile() +
+  labs(
+    title = "Average Daily US Births by Calendar Date (1994–2014)",
+    x = "Day of Month",
+    y = "Month",
+    fill = "Mean Births"
+  )
+```
+
+```{r}
+births_tibble |>
+  filter(month == 12, date_of_month %in% c(20:25, 27:30)) |>
+  group_by(year) |>
+  summarize(
+    dec_25_births = births[date_of_month == 25],
+    dec_25_dow = day_of_week[date_of_month == 25],
+    surrounding_avg = mean(births[date_of_month != 25]),
+    pct_of_baseline = (dec_25_births / surrounding_avg) * 100
+  ) |>
+  ggplot(aes(x = year, y = pct_of_baseline)) +
+  geom_line() +
+  geom_point(aes(color = dec_25_dow)) +
+  labs(
+    title = "Christmas Day Births as a Percentage of Surrounding Days (1994–2014)",
+    x = "Year",
+    y = "% of Surrounding Days Average",
+    color = "Day of Week"
+  )
+```
+
+```{r}
+births_model <- lm(births ~ year + month + day_of_week, data = births_tibble)
+summary(births_model)$r.squared
+```
+
+```{r}
+births_adjusted <- births_tibble |>
+  mutate(pct_resid = (residuals(births_model) / mean(births)) * 100)
+
+calendar_resid <- births_adjusted |>
+  filter(!(month == 2 & date_of_month == 29)) |>
+  group_by(month, date_of_month) |>
+  summarize(mean_pct_resid = mean(pct_resid), .groups = "drop") |>
+  mutate(calendar_date = make_date(2001, month, date_of_month))
+
+calendar_resid |>
+  ggplot(aes(x = calendar_date, y = mean_pct_resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line() +
+  annotate("text", x = make_date(2001, 1, 1), y = -29, label = "New Year's Day", hjust = 0, size = 3) +
+  annotate("text", x = make_date(2001, 7, 4), y = -25, label = "July 4th", size = 3) +
+  annotate("text", x = make_date(2001, 11, 25), y = -17, label = "Thanksgiving", hjust = 1, size = 3) +
+  annotate("text", x = make_date(2001, 12, 25), y = -45, label = "Christmas", hjust = 1, size = 3) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  labs(
+    title = "Average Daily Birth Residuals by Calendar Date (1994–2014)",
+    subtitle = "Adjusted for year, month, and day of the week",
+    x = "Date",
+    y = "Mean Residual (% of Mean Births)"
+  )
+```
+
+
